@@ -1,0 +1,3 @@
+Policy,Hit Rate,Miss Rate,Hits,Misses,Requests,Evictions,Steps,Time
+linked.Lru,83.88,16.12,4665211,896491,5561702,145922,10226913,1333
+sampled.sampled.Lru,83.93,16.07,4667802,893900,5561702,143331,5705033,1168

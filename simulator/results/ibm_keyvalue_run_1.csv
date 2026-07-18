@@ -1,0 +1,4 @@
+Policy,Hit Rate,Miss Rate,Hits,Misses,Requests,Evictions,Steps,Time
+linked.Lru,99.98,0.02,153882209,37120,153919329,0,307801538,9515
+opt.Clairvoyant,99.98,0.02,153882209,37120,153919329,0,,69541
+sampled.sampled.Lru,99.98,0.02,153882209,37120,153919329,0,153919329,6429

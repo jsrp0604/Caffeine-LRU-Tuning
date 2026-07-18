@@ -1,0 +1,2 @@
+Policy,Hit Rate,Miss Rate,Hits,Misses,Requests,Evictions,Requests Weight,Weighted Hit Rate,Weighted Miss Rate,Steps,Time
+linked.Lru,0.16,99.84,41944,25599660,25641604,25589867,1090876352000,0.05,99.95,32579126,2260
