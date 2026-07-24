@@ -75,6 +75,21 @@ BAR_RAMP = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281"]
 # marker alongside each box in the hit-rate box plot.
 BOX_REFERENCE_POLICY = "linked.Lru"
 
+# Trace directories to also render a log-scale miss-rate graph for, in
+# addition to the standard hit-rate graphs (mirrors the *_log.png hit-rate
+# graph, but plots 100 - hit rate).
+MISS_RATE_TRACES = {"msr_web", "msr_src1"}
+
+# Sample (k) sizes overlaid together in the combined miss-rate graph, one line
+# per k plus a linked.Lru reference line.
+COMBINED_SAMPLE_SIZES = [1, 2, 4, 8, 10]
+
+# Distinct categorical hues (not a single-hue ramp) for the k lines in the
+# combined miss-rate graph — a sequential ramp reads as near-identical shades
+# when 5+ lines overlap, so each k gets its own hue plus its own marker shape.
+COMBINED_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]
+COMBINED_MARKERS = ["s", "^", "D", "v", "P"]
+
 # ── CSV parsing ───────────────────────────────────────────────────────────────
 
 # Matches combined-per-sample files only, not per-size files:
@@ -217,6 +232,102 @@ def plot_graph(
     ax.grid(True, which="major", linestyle="--", alpha=0.5)
     if xscale == "log":
         ax.grid(True, which="minor", linestyle=":", alpha=0.25)
+
+    fig.tight_layout()
+    return fig
+
+
+def plot_missrate_graph(
+    sizes: list[int],
+    rows: list[dict],
+    title: str,
+) -> plt.Figure:
+    """Log-scale miss-rate graph: same layout/styling as plot_graph's log
+    variant, but plots (100 - hit rate) with a "Miss Rate (%)" y-axis."""
+    fig, ax = plt.subplots(figsize=(11, 6))
+
+    for row in rows:
+        style = POLICY_STYLE.get(row["policy"]) or _fallback_style(row["policy"])
+        ax.plot(sizes, [100.0 - v for v in row["values"]], **style)
+
+    ax.set_xscale("log")
+    ax.set_xticks(sizes)
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(_si_fmt))
+    ax.xaxis.set_minor_locator(mticker.NullLocator())
+
+    plt.setp(ax.get_xticklabels(), rotation=90, ha="center", fontsize=9)
+    _hide_crowded_xlabels(ax, sizes, min_gap_px=20)
+
+    ax.set_xlabel("Cache Size (entries)", fontsize=12)
+    ax.set_ylabel("Miss Rate (%)", fontsize=12)
+    ax.yaxis.set_major_locator(mticker.MultipleLocator(10))
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:.0f}%"))
+    ax.set_ylim(bottom=0, top=105)
+
+    ax.set_title(title, fontsize=13, pad=10)
+    ax.legend(fontsize=11, loc="upper right")
+
+    ax.grid(True, which="major", linestyle="--", alpha=0.5)
+    ax.grid(True, which="minor", linestyle=":", alpha=0.25)
+
+    fig.tight_layout()
+    return fig
+
+
+def plot_combined_missrate_graph(
+    sizes: list[int],
+    per_k_values: dict[int, list[float]],
+    reference_values: list[float],
+    title: str,
+) -> plt.Figure:
+    """Log-scale miss-rate graph overlaying sampled.Lru at each k in
+    COMBINED_SAMPLE_SIZES (light -> dark ramp) plus linked.Lru as a reference
+    line, all on one set of axes."""
+    fig, ax = plt.subplots(figsize=(11, 6))
+
+    for i, k in enumerate(COMBINED_SAMPLE_SIZES):
+        ax.plot(
+            sizes,
+            [100.0 - v for v in per_k_values[k]],
+            color=COMBINED_COLORS[i],
+            linestyle="--",
+            marker=COMBINED_MARKERS[i],
+            markersize=4,
+            linewidth=1.2,
+            label=f"sampled.LRU (k={k})",
+        )
+
+    reference_style = POLICY_STYLE[BOX_REFERENCE_POLICY]
+    ax.plot(
+        sizes,
+        [100.0 - v for v in reference_values],
+        color=reference_style["color"],
+        linestyle="-",
+        marker="o",
+        markersize=3,
+        linewidth=1.2,
+        label=reference_style["label"],
+    )
+
+    ax.set_xscale("log")
+    ax.set_xticks(sizes)
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(_si_fmt))
+    ax.xaxis.set_minor_locator(mticker.NullLocator())
+
+    plt.setp(ax.get_xticklabels(), rotation=90, ha="center", fontsize=9)
+    _hide_crowded_xlabels(ax, sizes, min_gap_px=20)
+
+    ax.set_xlabel("Cache Size (entries)", fontsize=12)
+    ax.set_ylabel("Miss Rate (%)", fontsize=12)
+    ax.yaxis.set_major_locator(mticker.MultipleLocator(10))
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:.0f}%"))
+    ax.set_ylim(bottom=0, top=105)
+
+    ax.set_title(title, fontsize=13, pad=10)
+    ax.legend(fontsize=10, loc="upper right")
+
+    ax.grid(True, which="major", linestyle="--", alpha=0.5)
+    ax.grid(True, which="minor", linestyle=":", alpha=0.25)
 
     fig.tight_layout()
     return fig
@@ -518,6 +629,14 @@ def main() -> None:
                 print(f"    OK  {out.name}")
                 total += 1
 
+            if trace_dir.name in MISS_RATE_TRACES:
+                fig = plot_missrate_graph(sizes, rows, f"{base_title} (Log scale)")
+                out = graphs_dir / f"{csv_path.stem}_missrate_log.png"
+                fig.savefig(out, dpi=OUTPUT_DPI, bbox_inches="tight")
+                plt.close(fig)
+                print(f"    OK  {out.name}")
+                total += 1
+
         # Throughput log graphs — one per throughput CSV in this trace directory
         throughput_candidates: list[tuple[int, str, Path]] = []
         for csv_path in sorted(csv_dir.glob("*_throughput.csv")):
@@ -650,6 +769,46 @@ def main() -> None:
                 delta_fig.savefig(delta_out, dpi=OUTPUT_DPI, bbox_inches="tight")
                 plt.close(delta_fig)
                 print(f"    OK  {delta_out.name}")
+                total += 1
+
+        # Combined miss-rate graph — one per trace: sampled.Lru at each k in
+        # COMBINED_SAMPLE_SIZES overlaid with linked.Lru, all on one graph.
+        if trace_dir.name in MISS_RATE_TRACES and all(
+            k in hitrate_by_sample for k in COMBINED_SAMPLE_SIZES
+        ):
+            sizes_ref = None
+            per_k_values: dict[int, list[float]] = {}
+            reference_values = None
+            ok = True
+            for k in COMBINED_SAMPLE_SIZES:
+                sizes, rows = load_csv(hitrate_by_sample[k])
+                if sizes_ref is None:
+                    sizes_ref = sizes
+                elif sizes != sizes_ref:
+                    print(f"    SKIP combined miss-rate graph: cache sizes differ "
+                          f"between sample{k} and earlier samples")
+                    ok = False
+                    break
+                sampled_row = next((r for r in rows if r["policy"] == BAR_POLICY), None)
+                reference_row = next((r for r in rows if r["policy"] == BOX_REFERENCE_POLICY), None)
+                if sampled_row is None or reference_row is None:
+                    print(f"    SKIP combined miss-rate graph: missing '{BAR_POLICY}' or "
+                          f"'{BOX_REFERENCE_POLICY}' in sample{k} CSV")
+                    ok = False
+                    break
+                per_k_values[k] = sampled_row["values"]
+                if reference_values is None:
+                    reference_values = reference_row["values"]
+
+            if ok:
+                pretty_name = trace_dir.name.replace("_", " ").title()
+                k_list = ", ".join(str(k) for k in COMBINED_SAMPLE_SIZES)
+                title = f"{pretty_name} — Miss Rate: sampled.LRU (k={k_list}) vs linked.LRU (Log scale)"
+                fig = plot_combined_missrate_graph(sizes_ref, per_k_values, reference_values, title)
+                out = graphs_dir / f"{trace_dir.name}_missrate_combined_log.png"
+                fig.savefig(out, dpi=OUTPUT_DPI, bbox_inches="tight")
+                plt.close(fig)
+                print(f"    OK  {out.name}")
                 total += 1
 
     print(f"\n{'=' * 58}")
